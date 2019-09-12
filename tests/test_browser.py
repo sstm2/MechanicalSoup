@@ -3,6 +3,7 @@ import mechanicalsoup
 import sys
 from bs4 import BeautifulSoup
 import tempfile
+import os
 from requests.cookies import RequestsCookieJar
 import pytest
 
@@ -56,7 +57,6 @@ def test__request(httpbin):
         <p><input type=checkbox name="topping" value="onion" checked>Onion</p>
         <p><input type=checkbox name="topping" value="mushroom">Mushroom</p>
       </fieldset>
-      <input name="pic" type="FiLe">
       <select name="shape">
         <option value="round">Round</option>
         <option value="square" selected>Square</option>
@@ -81,35 +81,96 @@ def test__request(httpbin):
         "Content-Type"]
 
 
-def test__request_file(httpbin):
+valid_enctypes_file_submit = {"multipart/form-data": True,
+                              "application/x-www-form-urlencoded": False
+                              }
+
+default_enctype = "application/x-www-form-urlencoded"
+
+
+@pytest.mark.parametrize("file_field", [
+  """<input name="pic" type="file" />""",
+  ""])
+@pytest.mark.parametrize("submit_file", [
+    True,
+    False
+])
+@pytest.mark.parametrize("enctype", [
+  pytest.param("multipart/form-data"),
+  pytest.param("application/x-www-form-urlencoded"),
+  pytest.param("Invalid enctype")
+])
+def test_enctype_and_file_submit(httpbin, enctype, submit_file, file_field):
+    # test if enctype is respected when specified
+    # and if files are processed correctly
     form_html = """
-    <form method="post" action="{}/post">
-      <input name="pic" type="file" />
+    <form method="post" action="{}/post" enctype="{}">
+      <input name="in" value="test" />
+      {}
     </form>
-    """.format(httpbin.url)
+    """.format(httpbin.url, enctype, file_field)
     form = BeautifulSoup(form_html, "lxml").form
 
-    # create a temporary file for testing file upload
-    pic_path = tempfile.mkstemp()[1]
-    with open(pic_path, "w") as f:
-        f.write(":-)")
-
-    form.find("input", {"name": "pic"})["value"] = pic_path
+    valid_enctype = (enctype in valid_enctypes_file_submit and
+                     valid_enctypes_file_submit[enctype])
+    expected_content = b""  # default
+    if submit_file and file_field:
+        # create a temporary file for testing file upload
+        file_content = b":-)"
+        pic_filedescriptor, pic_path = tempfile.mkstemp()
+        os.write(pic_filedescriptor, file_content)
+        os.close(pic_filedescriptor)
+        if valid_enctype:
+            # Correct encoding => send the content
+            expected_content = file_content
+        else:
+            # Encoding doesn't allow sending the content, we expect
+            # the filename as a normal text field.
+            expected_content = pic_path.encode()
+        form.find("input", {"name": "pic"})["value"] = pic_path
 
     browser = mechanicalsoup.Browser()
     response = browser._request(form)
 
-    # Check that only "files" includes a "pic" keyword in the response
-    found = False
-    for key, value in response.json().items():
-        if key == "files":
-            assert value["pic"] == ":-)"
-            found = True
-        else:
-            assert (value is None) or ("pic" not in value)
+    if enctype not in valid_enctypes_file_submit:
+        expected_enctype = default_enctype
+    else:
+        expected_enctype = enctype
+    assert expected_enctype in response.request.headers["Content-Type"]
 
-    assert found
-    assert "multipart/form-data" in response.request.headers["Content-Type"]
+    resp = response.json()
+    assert resp["form"]["in"] == "test"
+
+    found = False
+    found_in = None
+
+    for key, value in resp.items():
+        if value:
+            if "pic" in value:
+                content = value["pic"].encode()
+                assert not found
+                assert key in ("files", "form")
+                found = True
+                found_in = key
+            if key == "files" and not valid_enctype:
+                assert not value
+
+    assert found == bool(file_field)
+    if file_field:
+        assert content == expected_content
+
+        if valid_enctype:
+            assert found_in == "files"
+            if submit_file:
+                assert ("filename=\"" + pic_path + "\""
+                        ).encode() in response.request.body
+            else:
+                assert b"filename=\"\"" in response.request.body
+        else:
+            assert found_in == "form"
+
+    if submit_file and file_field:
+        os.remove(pic_path)
 
 
 def test__request_select_none(httpbin):
@@ -183,7 +244,7 @@ def test_post(httpbin):
     browser = mechanicalsoup.Browser()
     data = {'color': 'blue', 'colorblind': 'True'}
     resp = browser.post(httpbin + "/post", data)
-    assert(resp.status_code == 200 and resp.json()['form'] == data)
+    assert resp.status_code == 200 and resp.json()['form'] == data
 
 
 if __name__ == '__main__':

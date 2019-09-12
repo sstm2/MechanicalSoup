@@ -143,16 +143,32 @@ def test_submit_btnName(expected_post):
     browser.select_form('#choose-submit-form')
     browser['text'] = dict(expected_post)['text']
     browser['comment'] = dict(expected_post)['comment']
+    initial_state = browser._StatefulBrowser__state
     res = browser.submit_selected(btnName=expected_post[2][0])
-    assert(res.status_code == 200 and res.text == 'Success!')
+    assert res.status_code == 200 and res.text == 'Success!'
+    assert initial_state != browser._StatefulBrowser__state
+
+
+def test_submit_dont_update_state():
+    expected_post = [
+            ('text', 'Bananas are good.'),
+            ('preview', 'Preview Page')]
+    browser, url = setup_mock_browser(expected_post=expected_post)
+    browser.open(url)
+    browser.select_form('#choose-submit-form')
+    browser['text'] = dict(expected_post)['text']
+    initial_state = browser._StatefulBrowser__state
+    res = browser.submit_selected(update_state=False)
+    assert res.status_code == 200 and res.text == 'Success!'
+    assert initial_state == browser._StatefulBrowser__state
 
 
 def test_get_set_debug():
     browser = mechanicalsoup.StatefulBrowser()
     # Debug mode is off by default
-    assert(not browser.get_debug())
+    assert not browser.get_debug()
     browser.set_debug(True)
-    assert(browser.get_debug())
+    assert browser.get_debug()
 
 
 def test_list_links(capsys):
@@ -226,6 +242,9 @@ def test_new_control(httpbin):
     browser.new_control("text", "temperature", "warm")
     browser.new_control("textarea", "size", "Sooo big !")
     browser.new_control("text", "comments", "This is an override comment")
+    fake_select = BeautifulSoup("", "html.parser").new_tag('select')
+    fake_select["name"] = "foo"
+    browser.get_current_form().form.append(fake_select)
     browser.new_control("checkbox", "foo", "valval", checked="checked")
     tag = browser.get_current_form().form.find("input", {"name": "foo"})
     assert tag.attrs["checked"] == "checked"
@@ -282,7 +301,7 @@ def test_form_noname():
     browser.open_fake_page(submit_form_noname, url=url)
     browser.select_form('#choose-submit-form')
     response = browser.submit_selected()
-    assert(response.status_code == 200 and response.text == 'Success!')
+    assert response.status_code == 200 and response.text == 'Success!'
 
 
 submit_form_multiple = '''
@@ -306,7 +325,7 @@ def test_form_multiple():
     browser.open_fake_page(submit_form_multiple, url=url)
     browser.select_form('#choose-submit-form')
     response = browser.submit_selected()
-    assert(response.status_code == 200 and response.text == 'Success!')
+    assert response.status_code == 200 and response.text == 'Success!'
 
 
 def test_upload_file(httpbin):
@@ -323,8 +342,10 @@ def test_upload_file(httpbin):
                     ("first file content", "second file content"))
 
     # The form doesn't have a type=file field, but the target action
-    # does show it => add the fields ourselves.
+    # does show it => add the fields ourselves, and add enctype too.
     browser.select_form()
+    browser._StatefulBrowser__state.form.form[
+      "enctype"] = "multipart/form-data"
     browser.new_control("file", "first", path1)
     browser.new_control("file", "second", "")
     browser["second"] = path2
@@ -424,8 +445,7 @@ def test_referer_submit_headers(httpbin):
 @pytest.mark.parametrize('expected, kwargs', [
     pytest.param('/foo', {}, id='none'),
     pytest.param('/get', {'text': 'Link'}, id='text'),
-    pytest.param('/get', {'url_regex': 'get'}, id='regex',
-                 marks=pytest.mark.xfail),
+    pytest.param('/get', {'url_regex': 'get'}, id='regex'),
 ])
 def test_follow_link_arg(httpbin, expected, kwargs):
     browser = mechanicalsoup.StatefulBrowser()

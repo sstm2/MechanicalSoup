@@ -282,12 +282,10 @@ class Form(object):
 
         The arguments set the attributes of the new element.
         """
-        old_input = self.form.find_all('input', {'name': name})
-        for old in old_input:
-            old.decompose()
-        old_textarea = self.form.find_all('textarea', {'name': name})
-        for old in old_textarea:
-            old.decompose()
+        # Remove existing input-like elements with the same name
+        for tag in ('input', 'textarea', 'select'):
+            for old in self.form.find_all(tag, {'name': name}):
+                old.decompose()
         # We don't have access to the original soup object (just the
         # Tag), so we instantiate a new BeautifulSoup() to call
         # new_tag(). We're only building the soup object, not parsing
@@ -344,12 +342,17 @@ class Form(object):
 
         found = False
         for inp in inps:
-            if inp == submit or (inp.has_attr('name') and
-                                 inp['name'] == submit):
+            if (inp.has_attr('name') and inp['name'] == submit):
                 if found:
                     raise LinkNotFoundError(
                         "Multiple submit elements match: {0}".format(submit)
                     )
+                found = True
+            elif inp == submit:
+                if found:
+                    # Ignore submit element since it is an exact
+                    # duplicate of the one we're looking at.
+                    del inp['name']
                 found = True
             else:
                 # Delete any non-matching element's name so that it will be

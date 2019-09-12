@@ -99,7 +99,7 @@ def test_choose_submit(expected_post):
     browser['comment'] = dict(expected_post)['comment']
     form.choose_submit(expected_post[2][0])
     res = browser.submit_selected()
-    assert(res.status_code == 200 and res.text == 'Success!')
+    assert res.status_code == 200 and res.text == 'Success!'
 
 
 @pytest.mark.parametrize("value", [
@@ -200,7 +200,7 @@ def test_form_noaction():
     form = browser.select_form('#choose-submit-form')
     form['text1'] = 'newText1'
     res = browser.submit_selected()
-    assert(res.status_code == 200 and browser.get_url() == url)
+    assert res.status_code == 200 and browser.get_url() == url
 
 
 submit_form_action = '''
@@ -224,7 +224,7 @@ def test_form_action():
     form = browser.select_form('#choose-submit-form')
     form['text1'] = 'newText1'
     res = browser.submit_selected()
-    assert(res.status_code == 200 and browser.get_url() == url)
+    assert res.status_code == 200 and browser.get_url() == url
 
 
 set_select_form = '''
@@ -256,7 +256,7 @@ def test_set_select(option):
     if not option['default']:
         browser[option['result'][0][0]] = option['result'][0][1]
     res = browser.submit_selected()
-    assert(res.status_code == 200 and res.text == 'Success!')
+    assert res.status_code == 200 and res.text == 'Success!'
 
 
 set_select_multiple_form = '''
@@ -290,7 +290,7 @@ def test_set_select_multiple(options):
     form = browser.select_form('form')
     form.set_select({'instrument': options})
     res = browser.submit_selected()
-    assert(res.status_code == 200 and res.text == 'Success!')
+    assert res.status_code == 200 and res.text == 'Success!'
 
 
 def test_form_not_found():
@@ -463,7 +463,27 @@ def test_issue158():
     browser.open(url)
     browser.select_form()
     res = browser.submit_selected()
-    assert(res.status_code == 200 and res.text == 'Success!')
+    assert res.status_code == 200 and res.text == 'Success!'
+    browser.close()
+
+
+def test_duplicate_submit_buttons():
+    """Tests that duplicate submits doesn't break form submissions
+    See issue https://github.com/MechanicalSoup/MechanicalSoup/issues/264"""
+    issue264_form = '''
+<form method="post" action="mock://form.com/post">
+  <input name="box" type="hidden" value="1"/>
+  <input name="search" type="submit" value="Search"/>
+  <input name="search" type="submit" value="Search"/>
+</form>
+'''
+    expected_post = [('box', '1'), ('search', 'Search')]
+    browser, url = setup_mock_browser(expected_post=expected_post,
+                                      text=issue264_form)
+    browser.open(url)
+    browser.select_form()
+    res = browser.submit_selected()
+    assert res.status_code == 200 and res.text == 'Success!'
     browser.close()
 
 
